@@ -146,7 +146,8 @@ class AbacaChat(AdminMixin):
             self.send_success_response(_id, content)
             self.broadcast('event', 'new_message', {
                 'message': content,
-                'sender': self.locals.user['data']
+                'sender': self.locals.user['data'],
+                'id': self.generate_id(),
             })
 
     @router.register('set_nick')
