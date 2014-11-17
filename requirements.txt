@@ -1,0 +1,2 @@
+gevent==1.0.1
+gevent-websocket==0.9.3

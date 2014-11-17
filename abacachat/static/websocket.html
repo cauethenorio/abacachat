@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AbacaChat</title>
+</head>
+<style>
+    dl {
+        border: 3px double #ccc;
+        padding: 0.5em;
+        width: 400px;
+        height: 200px;
+        overflow: auto;
+    }
+
+    dt {
+        float: left;
+        clear: left;
+        width: 100px;
+        text-align: right;
+        font-weight: bold;
+        color: green;
+    }
+
+    dt:after {
+        content: ":";
+    }
+
+    dd {
+        margin: 0 0 0 110px;
+        padding: 0 0 0.5em 0;
+    }
+</style>
+<body ng-app="AbacaChatApp" ng-controller="ChatController as chat">
+<div ng-show="chat.connected_users">Connected users: <b>{{ chat.connected_users
+    }}</b></div>
+<p>Msgs: {{ chat.messages.length }}</p>
+<dl>
+    <dt ng-repeat-start="message in chat.messages">
+        <a ng-show="chat.isAdmin" ng-click="chat.muteUser(message.sender.id)">mute</a>
+        {{ message.sender.nick || 'Anônimo' }}
+    </dt>
+    <dd ng-repeat-end>{{ message.message }}</dd>
+</dl>
+<div>
+    <input type="text" ng-model="chat.message_text"/>
+    <button ng-click="chat.sendMessage(chat.message_text)">Enviar</button>
+</div>
+<div zng-show="!chat.nick">
+    <input type="text" ng-model="chat.nick_set"/>
+    <button ng-click="chat.setNick(chat.nick_set)">Mudar nick</button>
+</div>
+<div ng-show="chat.nick">
+    Seu nick: <b>{{ chat.nick }}</b>
+</div>
+
+<div ng-show="chat.error" style="color: #A00;">
+    Erro: <b>{{ chat.error }}</b>
+</div>
+<h5 ng-show="chat.chatBlocked">Chat bloqueado</h5>
+<h5 ng-show="chat.muted">Vocês está mutado</h5>
+<div ng-show="chat.isAdmin">
+    <h5>Você é admin!</h5>
+    <button ng-show="!chat.chatBlocked" ng-click="chat.sendAdminEvent('block_chat')">Bloquear chat</button>
+    <button ng-show="chat.chatBlocked" ng-click="chat.sendAdminEvent('unblock_chat')">Desbloquear chat</button>
+    <button ng-click="chat.sendAdminEvent('clear_chat')">Limpar chat</button>
+</div>
+
+
+<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.0/angular.min.js"></script>
+<script type="text/javascript">
+
+    angular.module('AbacaChatApp', [])
+
+            .factory('AbacaChatSocket', function ($rootScope, $q) {
+
+                function ChatSocket(url) {
+
+                    var self = this,
+                        pendingDeferreds = {};
+
+                    self.webSocketURL = url;
+                    self.messages = [];
+                    self.connectedClients = [];
+                    self._cbs = {info: {}, error: {}, event: {}, response: {}};
+
+                    self._ws = new WebSocket(self.webSocketURL);
+
+
+                    self._capitalize = function(string) {
+                        return string.charAt(0).toUpperCase() + string.slice(1);
+                    };
+
+                    self._ws.onmessage = function (wsMessage) {
+
+                        var message = JSON.parse(wsMessage.data),
+                            handleFuncName = 'handle' + self._capitalize(message.type),
+                            callbacks = self._cbs[message.type][message.name];
+
+                        if (callbacks)
+                            for (var cbi=0; cbi < callbacks.length; cbi++) {
+                                $rootScope.$apply(function () {
+                                    callbacks[cbi](message.content)
+                                });
+                            }
+
+                        if (self[handleFuncName])
+                            self[handleFuncName](message);
+                    };
+
+                    self.handleResponse = function (response) {
+                        // there is no response without replying attr
+                        if (response.replying) {
+                            var def = pendingDeferreds[response.replying],
+                                callback = (response.name == 'success') ?
+                                            def.resolve : def.reject;
+
+                            callback(response.content);
+                            delete pendingDeferreds[response.replying];
+                        }
+                    };
+
+                    self.handleEvent = function(event) {
+
+                        if (event.name == 'new_message') {
+                            $rootScope.$apply(function () {
+                                self.messages.push(event);
+                            });
+                        }
+
+                    };
+
+                    self.sendEvent = function (payload) {
+                        var message_id = self.generateId(),
+                                deferred = $q.defer();
+
+                        payload.id = message_id;
+                        self._ws.send(JSON.stringify(payload));
+
+                        pendingDeferreds[message_id] = deferred;
+                        return deferred.promise;
+                    };
+
+                    self.sendMessage = function (msg) {
+                        return self.sendEvent({
+                            'name': 'new_message',
+                            'content': msg
+                        });
+                    };
+
+                    self.setNick = function (nick) {
+                        return self.sendEvent({
+                            'name': 'set_nick',
+                            'content': {
+                                'nick': nick
+                            }
+                        });
+                    };
+
+                    self.generateId = function () {
+                        if (!self.last_id)
+                            self.last_id = 0;
+
+                        return ++self.last_id;
+                    };
+
+                    self.onConnect = function (cb) {
+                        self._ws.onopen = cb;
+                    };
+
+                    self.onClose = function (cb) {
+                        self._ws.onclose = cb;
+                    };
+
+                    self._setCallback = function(type, name, cb) {
+                        var callbacks = self._cbs[type][name] || [];
+
+                        if (callbacks.indexOf(cb) < 0) {
+                            callbacks.push(cb);
+                            self._cbs[type][name] = callbacks;
+                        }
+                    };
+
+                    self.onInfo = function (name, cb) {
+                        self._setCallback('info', name, cb);
+                    };
+
+                    self.onEvent = function (name, cb) {
+                        self._setCallback('event', name, cb);
+                    };
+
+                    self.onError = function (name, cb) {
+                        self._setCallback('error', name, cb);
+                    };
+
+
+                };
+
+                return ChatSocket;
+
+            })
+
+            .controller('ChatController', function (AbacaChatSocket) {
+
+                var self = this,
+                    chatSocket = new AbacaChatSocket("ws://" + window.location.host + "/chat-ws");
+
+                self.messages = [];
+
+                chatSocket.onConnect(function () {
+                    console.log('conectou');
+                });
+
+                this.sendMessage = function (msg) {
+                    chatSocket.sendMessage(msg).then(
+                        function (result) {
+                            delete self.error
+
+                        }, function (error) {
+                            self.error = error.code;
+                        }
+                    );
+                };
+
+                this.setNick = function (nick) {
+                    chatSocket.setNick(nick).then(
+                        function (result) {
+                            self.nick = result.content;
+                            delete self.error
+
+                        }, function (error) {
+                            self.error = error
+                        }
+                    );
+                };
+
+                this.sendAdminEvent = function (name, content) {
+                    chatSocket.sendEvent({
+                        'name': name,
+                        'content': content
+                    }).then(
+                            function (result) {
+                                delete self.error
+
+                            }, function (error) {
+                                self.error = error.code;
+                            }
+                    );
+                };
+
+                this.muteUser = function(userId) {
+                    chatSocket.sendEvent({
+                        'name': 'mute_user',
+                        'content': {id: userId}
+                    }).then(
+                            function (result) {
+                                console.log('user muted', result);
+                                delete self.error
+
+                            }, function (error) {
+                                self.error = error.code;
+                            }
+                    );
+                };
+
+                chatSocket.onInfo('users_count', function (val) {
+                    self.connected_users = val;
+                });
+
+                chatSocket.onInfo('you_are_admin', function () {
+                    self.isAdmin = true;
+                });
+
+                chatSocket.onEvent('chat_blocked', function () {
+                    self.chatBlocked = true;
+                });
+
+                chatSocket.onEvent('chat_unblocked', function () {
+                    self.chatBlocked = false;
+                });
+
+                chatSocket.onEvent('muted', function () {
+                    self.muted = true;
+                });
+
+                chatSocket.onEvent('unmuted', function () {
+                    self.muted = false;
+                });
+
+                chatSocket.onEvent('new_message', function(message) {
+                    console.log(message);
+                    self.messages.push(message);
+                });
+
+                chatSocket.onEvent('chat_cleared', function() {
+                    self.messages = [];
+                });
+
+            });
+</script>
+
+</body>
+</html>
