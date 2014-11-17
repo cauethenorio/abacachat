@@ -50,7 +50,7 @@ class AdminMixin(object):
             if broadcast_event:
                 self.broadcast('event', broadcast_event, {
                     'sender': self.locals.user['data']
-                }, filter=broadcast_filter)
+                }, filter_fn=broadcast_filter)
 
         else:
             self.send('response', 'error', {
