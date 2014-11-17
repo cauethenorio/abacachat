@@ -4,7 +4,6 @@ from datetime import datetime
 import json
 import uuid
 
-import bottle
 import gevent
 from gevent import monkey; monkey.patch_all()
 from gevent.local import local
