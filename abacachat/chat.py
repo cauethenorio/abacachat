@@ -31,10 +31,7 @@ class AbacaChat(AdminMixin):
 
     router = EventRouter()
 
-    def __init__(self, host='127.0.0.1', port=8000):
-        self._host = host
-        self._port = port
-
+    def __init__(self):
         self.locals = local()
         self._clients = []
         self._muted_clients = []
@@ -89,21 +86,22 @@ class AbacaChat(AdminMixin):
 
     def wsgi_app(self, environ, start_response):
         ws = environ.get('wsgi.websocket')
+
+        if not ws:
+            start_response("400 Bad Request", [])
+            return ["Expected WebSocket request."]
+
         self.handle_connection(ws)
 
-    def serve(self, ip='127.0.0.1', port=8000):
+    def serve(self, host='127.0.0.1', port=8000):
         from gevent import pywsgi
         from geventwebsocket.handler import WebSocketHandler
 
-        server = pywsgi.WSGIServer((ip, port), self.wsgi_app, handler_class=WebSocketHandler)
+        server = pywsgi.WSGIServer((host, port), self.wsgi_app,
+                                   handler_class=WebSocketHandler)
         server.serve_forever()
 
     def handle_connection(self, ws):
-        #ws = bottle.request.environ.get('wsgi.websocket')
-
-        if not ws:
-            bottle.abort(400, 'Expected WebSocket request.')
-
         self.locals.user = {
             'start_ts': datetime.now(),
             'ws': ws,

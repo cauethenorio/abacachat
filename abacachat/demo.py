@@ -19,11 +19,11 @@ class AbacaChatDemo(AbacaChat):
         self._app = bottle.Bottle()
         self._route()
 
-    def run(self):
+    def run(self, host='127.0.0.1', port=8000):
         bottle.debug(self._debug)
-        bottle.run(host=self._host,
+        bottle.run(host=host,
                    reloader=self._debug,
-                   port=int(self._port),
+                   port=int(port),
                    server='gevent',
                    app=self._app,
                    handler_class=WebSocketHandler)
