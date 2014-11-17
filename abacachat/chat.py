@@ -110,6 +110,7 @@ class AbacaChat(AdminMixin):
 
         try:
             self._clients.append(self.locals.user)
+            self.send('info', 'users_count', len(self._clients))
 
             while True:
                 self.event_routing(ws, ws.receive())
@@ -224,7 +225,9 @@ class AbacaChat(AdminMixin):
         if len(message) > self.MAX_MESSAGE_LEN:
             raise errors.MessageError('message_length_too_long')
 
-        if self.validate_in_cooldown() or self.validate_is_flooding():
+        if (not self.locals.user.get('is_admin')
+                and (self.validate_in_cooldown()
+                     or self.validate_is_flooding())):
             raise errors.MessageError('too_many_msgs_in_short_time')
 
     def validate_nick(self, nick):
