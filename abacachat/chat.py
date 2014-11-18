@@ -6,8 +6,12 @@ import uuid
 
 import gevent
 from gevent import monkey; monkey.patch_all()
+import sys
+
+from gevent import pywsgi
 from gevent.local import local
 
+from geventwebsocket.handler import WebSocketHandler
 from geventwebsocket import WebSocketError
 
 import errors
@@ -93,11 +97,10 @@ class AbacaChat(AdminMixin):
         self.handle_connection(ws)
 
     def serve(self, host='127.0.0.1', port=8000):
-        from gevent import pywsgi
-        from geventwebsocket.handler import WebSocketHandler
-
         server = pywsgi.WSGIServer((host, port), self.wsgi_app,
                                    handler_class=WebSocketHandler)
+
+        print('Serving {} on {}:{}...'.format(sys.argv[0], host, port))
         server.serve_forever()
 
     def handle_connection(self, ws):
@@ -151,19 +154,28 @@ class AbacaChat(AdminMixin):
                 'id': self.generate_id(),
             })
 
-    @router.register('set_nick')
-    def handle_nicks_set(self, name, _id, content):
+    @router.register('login')
+    def handle_login(self, name, _id, content):
         nick = content.get('nick')
 
         try:
             self.validate_nick(nick)
+            self.authenticate(content)
+
+            self.locals.user['data']['nick'] = nick
+            self.send_success_response(_id, content)
 
         except errors.NickError as e:
             self.send_error_response(e.error_code, _id, content)
-        else:
-            self.admin_auth(content)
-            self.locals.user['data']['nick'] = nick
-            self.send_success_response(_id, content)
+
+    def authenticate(self, content):
+        """
+        Check if current user is admin
+        """
+        if content.get('nick') == 'admin':
+            self.set_admin()
+
+        return True
 
     def nick_is_free(self, nick):
         for client in self._clients:
@@ -217,7 +229,7 @@ class AbacaChat(AdminMixin):
     def validate_message(self, message):
 
         if not self.locals.user['data'].get('nick'):
-            raise errors.MessageError('nick_not_set')
+            raise errors.MessageError('not_logged')
 
         if not message:
             raise errors.MessageError('empty_message')
@@ -225,7 +237,7 @@ class AbacaChat(AdminMixin):
         if len(message) > self.MAX_MESSAGE_LEN:
             raise errors.MessageError('message_length_too_long')
 
-        if (not self.locals.user.get('is_admin')
+        if (not self.locals.user['data'].get('is_admin')
                 and (self.validate_in_cooldown()
                      or self.validate_is_flooding())):
             raise errors.MessageError('too_many_msgs_in_short_time')

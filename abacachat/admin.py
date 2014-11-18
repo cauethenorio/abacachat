@@ -7,22 +7,15 @@ class AdminMixin(object):
 
     router = EventRouter()
 
-    def admin_auth(self, content):
-        """
-        Check if current user is admin
-        """
-        if content.get('nick') == 'caue':
-            self.set_admin()
-
     def set_admin(self):
-        self.locals.user['is_admin'] = True
+        self.locals.user['data']['is_admin'] = True
         self.send('info', 'you_are_admin', None)
 
     def has_permission(self, event):
         error_code = None
 
         if (getattr(self, 'chat_blocked', False)
-                and not self.locals.user.get('is_admin')):
+                and not self.locals.user['data'].get('is_admin')):
             error_code = 'chat_blocked'
 
         elif self.locals.user['data']['id'] in self._muted_clients:
@@ -43,7 +36,7 @@ class AdminMixin(object):
                             broadcast_event=None,
                             broadcast_filter=None):
 
-        if self.locals.user['is_admin']:
+        if self.locals.user['data']['is_admin']:
             action_func and action_func(_id, content)
             self.send('response', 'success', content, replying=_id)
 
