@@ -2,12 +2,13 @@
 
 from datetime import datetime
 import json
+import sys
 import uuid
 
-import gevent
-from gevent import monkey; monkey.patch_all()
-import sys
+from gevent import monkey
+monkey.patch_all()
 
+import gevent
 from gevent import pywsgi
 from gevent.local import local
 
@@ -23,12 +24,14 @@ from router import EventRouter
 class AbacaChat(AdminMixin):
 
     BROADCAST_USERS_COUNT_INTERVAL = 10
+    ANNOUNCE_ENTERS_AND_LEAVES = True
+
     MAX_MESSAGE_LEN = 256
     MAX_NICK_LEN = 32
 
     FLOOD_CONTROL = {
-        'messages': 2,
-        'delta_secs': 5,
+        'messages': 3,
+        'delta_secs': 10,
         'cooldown': 10,
     }
 
@@ -64,11 +67,27 @@ class AbacaChat(AdminMixin):
     def broadcast(self, _type, name, content, _id=None, filter_fn=None):
         _id = _id or self.generate_id()
 
-        for client in self._clients:
+        for client in list(self._clients):
             if not filter_fn or filter_fn(client):
                 self.send(_type, name, content, _id, ws=client['ws'])
 
+    def remove_client(self):
+        self._clients.remove(self.locals.user)
+
+        if (self.ANNOUNCE_ENTERS_AND_LEAVES
+                and self.locals.user['data'].get('nick')):
+
+            self.broadcast('info', 'client_exited', {
+                'sender': self.locals.user['data'],
+                'id': self.generate_id(),
+            })
+
+        del self.locals.user
+
     def event_routing(self, ws, json_event):
+        if ws.closed:
+            return
+
         try:
             event = json.loads(json_event)
         except (ValueError, TypeError):
@@ -111,15 +130,13 @@ class AbacaChat(AdminMixin):
             'last_msgs_ts': [],
         }
 
-        try:
-            self._clients.append(self.locals.user)
-            self.send('info', 'users_count', len(self._clients))
+        self._clients.append(self.locals.user)
+        self.send('info', 'users_count', len(self._clients))
 
-            while True:
-                self.event_routing(ws, ws.receive())
+        while not ws.closed:
+            self.event_routing(ws, ws.receive())
 
-        except WebSocketError as e:
-            self._clients.remove(self.locals.user)
+        self.remove_client()
 
     def send_error_response(self, code, _id, content):
         return self.send('response', 'error', {
@@ -167,6 +184,13 @@ class AbacaChat(AdminMixin):
 
         except errors.NickError as e:
             self.send_error_response(e.error_code, _id, content)
+
+        else:
+            if self.ANNOUNCE_ENTERS_AND_LEAVES:
+                self.broadcast('info', 'client_entered', {
+                    'sender': self.locals.user['data'],
+                    'id': self.generate_id(),
+                })
 
     def authenticate(self, content):
         """
@@ -270,4 +294,7 @@ class AbacaChat(AdminMixin):
         if replying:
             payload['replying'] = replying
 
-        (ws or self.locals.user['ws']).send(json.dumps(payload))
+        try:
+            (ws or self.locals.user['ws']).send(json.dumps(payload))
+        except WebSocketError:
+            pass

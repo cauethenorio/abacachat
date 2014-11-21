@@ -14,9 +14,13 @@ class AdminMixin(object):
     def has_permission(self, event):
         error_code = None
 
-        if (getattr(self, 'chat_blocked', False)
-                and not self.locals.user['data'].get('is_admin')):
-            error_code = 'chat_blocked'
+        if getattr(self, 'chat_blocked', False):
+
+            if event.get('name') == 'login':
+                self.authenticate(event['content'])
+
+            if not self.locals.user['data'].get('is_admin'):
+                error_code = 'chat_blocked'
 
         elif self.locals.user['data']['id'] in self._muted_clients:
             error_code = 'you_are_muted'
@@ -42,7 +46,8 @@ class AdminMixin(object):
 
             if broadcast_event:
                 self.broadcast('event', broadcast_event, {
-                    'sender': self.locals.user['data']
+                    'sender': self.locals.user['data'],
+                    'id': self.generate_id()
                 }, filter_fn=broadcast_filter)
 
         else:
