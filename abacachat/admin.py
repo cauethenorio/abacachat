@@ -1,6 +1,7 @@
 # config: utf-8
 
 from router import EventRouter
+import errors
 
 
 class AdminMixin(object):
@@ -17,7 +18,10 @@ class AdminMixin(object):
         if getattr(self, 'chat_blocked', False):
 
             if event.get('name') == 'login':
-                self.authenticate(event['content'])
+                try:
+                    self.authenticate(event['content'])
+                except errors.NickError as e:
+                    error_code = e.error_code
 
             if not self.locals.user['data'].get('is_admin'):
                 error_code = 'chat_blocked'
